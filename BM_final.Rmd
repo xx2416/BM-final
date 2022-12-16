@@ -1,0 +1,333 @@
+---
+title: "model_assumption"
+author: "Xicheng Xie"
+date: "2022-12-10"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(gtsummary)
+library(psych)
+library(glmnet)
+library(interactions)
+library(broom)
+library(modelr)
+library(ISLR)
+library(leaps)
+library(patchwork)
+library(corrplot)
+library(see)
+library(Matrix)
+
+```
+
+## Abstract
+
+While body fat has been an important predictor in the medical field, the measurement of body fat could sometimes be quite challenging. Therefore, the goal of this study was to build a regression model that could help predict the Brozek's percent body fat by using variables that are much easier to measure. Variables were selected based on two main approaches: 1) criterion-based methods that involved the use of Mallow's $C_p$ and Akaike information criterion (AIC); 2) shrinkage techniques that involved lasso, ridge, and elastic net regression. The predictive accuracy of these candidate models were compared and the model with the lowest Root Mean Squared Error was selected as final model. The features included in the final proposed model include age, weight, the circumferences of the neck, thigh, forearm, wrist, abdomen, an interaction term between abdomen and neck, and a second interaction term between weight and abdomen. All assumptions for a multiple linear regression model are checked during model diagnostics. While the model provided a good approximation to Brozek's body fat, it may not be applicable to other measures of body fat. Meanwhile, a standardized measurement protocol for each of these predictors is necessary to reduce measurement bias. 
+
+## Introduction
+
+Body fat has long been an important predictor in many health and medical situations: its role as an indicator of a healthy lifestyle, as a potential risk factor for cardiovascular disease, or as an indicator for obesity, etc. Despite its wide use in medical practices, the measurement of body fat could sometimes be quite challenging. Hence, the goal of this study is to build a regression model that could help us predict the body fat by using variables that are much easier to measure. 
+
+The raw dataset we were given contained 252 rows and 14 columns. We utilized percent body fat measured using Brozek's equation (bodyfat_brozek) as our response variable because some studies have shown that it is a relatively [more accurate alternative](https://pubmed.ncbi.nlm.nih.gov/21085903/) compared to Siri's equation. The dataset also contained information on the subjects' age in years, weight (lbs), measured circumferences of chest, hip, neck and various other body parts in centimeters. 
+
+## Methods
+
+### Data exploration: descriptive statistics and visualization
+
+We used the data set which has measurements of 252 men and contains different variables: the outcome, `bodyfat_brozek`, and potential predictors including `age`, `weight`, `height`, `neck`, `chest`, `abdomen`, `hip`, `thigh`, `knee`, `ankle`, `bicep`, `forearm`, `wrist`. To ensure the stability of our model, we calculated descriptive statistics for each variable of our study population. The distributions of each variable were studied to consider potential transformations (if necessary). Meanwhile, we discovered if there are any missing values or unusual observations which might be considered as potential outliers/influential points. Furthermore, we discovered the correlations among all the variables to inspect potential multicollinearity.
+
+### Construction of Model
+
+1. Variable selection
+
+Best subset selection was employed as an alternative to identify the best model. Generally speaking, it is a method that involves finding the subset of predictors that best predict the response variable by considering all the possible combinations of explanatory variables. After that, the "best" model with only one predictor would be identified, and then the one with 2 predictors, and so on. 
+We applied several methods to employ our predictor selection. Several statistical methods have been proposed to explore potential effects in epidemiologic studies. In our model-building part, we mainly applied criterion-based procedures, including Mallow’s $C_p$ criterion and Akaike Information Criterion (AIC), LASSO, Ridge regression, and ENET to penalize the number of predictors.
+
+While there are many criterion for finding the "best" model, such as maximizing adjusted $R^2$, or minimizing Mean Squared Error (MSE), we chose Mallow's $C_p$ and AIC as our "gold-standard". Mallow's $C_p$ compares the predictive ability of the subset model to the full model, by measuring the bias. We then chose the model with a $C_p$ statistic smaller than or equal to the number of predictors in the subset model. If a number of models meet that condition, the model with the smallest $C_p$ is chosen. We didn't choose Bayesian information criterion (BIC) because it has a severe penalization for models with a larger number of predictors. AIC is an estimator of prediction error and thereby relative quality of statistical models for a given set of data. It rewards goodness of fit (as assessed by the likelihood function), but it also includes a penalty that is an increasing function of the number of estimated parameters. LASSO, proposed by Tibshirani, shrinks coefficients towards exact zeroes, and thus promises to be a useful tool for variable selection. However, with highly correlated variables as predictors, LASSO tends to select only one out of these correlated variables and ignore the others. Ridge regression, as another shrinkage regression method, , which in turn improves prediction accuracy by minimizing the ridge loss function (mean squared error plus a penalty term). However, ridge regression does not perform variable selection because it cannot shrink coefficient estimates exactly to zero. ENET is a hybrid penalized regression method that blends LASSO and ridge regression to overcome the limitation of LASSO on data with highly correlated variables. Similar to LASSO, ENET executes variable selection, but it also has the ability to select a group of non-zero collinear variables.
+
+2. Interaction
+
+After predictor selection, we further probe the interaction between the predictors. Generally, the third and higher-order interactions are weak and hard to interpret, we first looked at the main effects and second-order interactions to find whether there are any significant parts of interaction terms between variables. For significant interaction terms, a versatile and sometimes the most interpretable method for understanding interaction effects is plotting. Package `interactions` provides `interact_plot` as a relatively pain-free method to get good lot-looking plots using `ggplot2` on the backend.
+
+3. Model comparison and diagnosis
+
+At last, we applied 10-fold cross-validation to decide which candidate `best` model has better performance in predicting by calculating and comparing their root-mean-square error (RMSE) in the `test` part. RMSE is a frequently used measure of the differences between values (sample or population values) predicted by a model. Afterward, a model diagnosis was performed. we used several diagnostics for checking the adequacy of our final regression model, including checking model assumption, identifying outliers and influential points, and multicollinearity inspection.
+
+## Results
+
+### Study population characteristics
+Characteristics of the study population overall were summarized in the table below. Participants had a mean age of 44.88 years and a standard deviation (SD) of 12.60 years. The average outcome is 18.94% of body fat with a SD of 7.75.
+```{r echo = FALSE}
+body_density_data <- read_excel("body_density_data.xlsx") %>% 
+  select(-bodyfat_siri,-body_density,-id)
+
+body_density_data %>%
+  tbl_summary(
+        statistic = list(all_continuous() ~ "{mean} ({sd})",
+                     all_categorical() ~ "{n} / {N} ({p}%)"),
+    digits = all_continuous() ~ 2,
+    label= list(bodyfat_brozek~"Percent body fat using Brozek’s equation (%)",
+                age~"Age (years)",
+                weight~"Weight (lbs)",
+                height~"Height (inches)",
+                neck~"Neck circumference (cm)",
+                chest~"Chest circumference (cm)",
+                abdomen~"Abdomen circumference (cm)",
+                hip~"Hip circumference (cm)",
+                thigh~"Thigh circumference (cm)",
+                knee~"Knee circumference (cm)",
+                ankle~"Ankle circumference (cm)",
+                bicep~"Extended biceps circumference (cm)",
+                forearm~"Forearm circumference (cm)",
+                wrist~"Wrist circumference (cm)"
+                ),
+    missing_text = "(Missing)"
+    ) %>% 
+  bold_labels()
+```
+
+The boxplot containing all the variables were presented in the figure below. Although several outliers did exist in nearly all variables, the distribution of variables and outcome are rather good. They are relatively symmetrical and without significant skews. Based on these, we thought there is no need to apply certain transformation and decided to keep their origin distributions and characteristics.
+```{r echo = FALSE}
+body_density_data %>% 
+  pivot_longer(
+    everything(),
+    names_to = "variables",
+    values_to = "values"
+  ) %>%
+  ggplot(aes(x=variables,y=values,color=variables))+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+### Correlation
+```{r echo = FALSE}
+corrplot(cor(body_density_data), type = "upper", diag = FALSE)
+```
+
+The correlation plot showed the Pearson's correlation between each possible pair of variables. The darker the color, the stronger the correlation. As shown above, the correlation between hip circumference and weight was the strongest amongall, and weight generally had a strong positive correlation with the circumference measurements of all body parts.Such high correlation between the variable is indicative of a potential multi-collinearity issue.There was also a very weak negative correlation between age and height, and between thigh circumference and height. 
+
+
+### Variable selection
+
+1. AIC
+```{r forward,results='hide'}
+# fit using one function
+## automatic procedure-AIC
+mult.fit<-lm(bodyfat_brozek~.,data=body_density_data)
+intercept_only <- lm (bodyfat_brozek ~ 1, data = body_density_data)
+
+step(intercept_only, direction = "forward", scope = formula(mult.fit))
+step(mult.fit, direction='backward')
+step(mult.fit, direction='both')
+```
+
+The above code presented the results of the automatic selection of predictors based on the AIC criterion. Three testing-based procedures including backward elimination, forward selection, and step-wise regression were applied and the model with the smallest value of AIC was automatically selected. Based on the results, AIC recommended us to eliminate `chest` and `knee` from our model as predictors.
+
+2. LASSO
+```{r}
+body_mat<-body_density_data %>% 
+  select(bodyfat_brozek,everything()) %>% 
+  as.matrix()
+
+lambda_seq <- 10^seq(-3, 0, by = .1)
+set.seed(2022)
+cv_object<-cv.glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=lambda_seq,nfolds=10)
+cv_object
+
+tibble(lambda=cv_object$lambda,mean_cv_error=cv_object$cvm) %>%
+  ggplot(aes(x=lambda,y=mean_cv_error))+geom_point()
+```
+```{r}
+cv_object$lambda.min
+```
+
+```{r lasso model}
+bestcv_object<-glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=cv_object$lambda.min)
+coef(bestcv_object)
+```
+First, we applied cross-validation to choose the optimal tuning parameter, which was 0.03162278. Using this value we fitted the lasso model to get recommendation about predictors selection. From the result above, LASSO model eliminated `chest` and `knee` from the optimal model.
+
+3. Ridge regression and Elastic Net
+```{r Ridge regression}
+cv_object_ridge<-cv.glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=lambda_seq,nfolds=10,alpha=0)
+plot(cv_object_ridge)
+
+glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=cv_object_ridge$lambda.min,alpha = 0) %>% 
+  coef()
+```
+```{r Elastic Net}
+cv_object_enet<-cv.glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=lambda_seq,nfolds=10,alpha=0.5)
+plot(cv_object_enet)
+glmnet(x=body_mat[,2:14],y=body_mat[,1],lambda=cv_object_enet$lambda.min,alpha = 0.5) %>% 
+  coef()
+```
+
+We applied Ridge regression and Elastic Net using the same fashion with different tuning parameters and the results were presented above. In a summary, we got the same results from AIC, LASSO, and E-Net, which recommending us to eliminate `chest` and `knee` From our model. Ridge regression recommended us to keep all the variables in the model. Since LASSO and ridge regression might be unstable when the predictors in the model are  highly correlated with each other, as a summary, we decided to respect the results that came from the AIC criterion and E-net which was to eliminate `chest` and `knee`. 
+
+4. Mallow's $C_p$
+```{r}
+## Cp 
+regfit.full = regsubsets(bodyfat_brozek ~., body_density_data, nvmax = 13)
+reg.summary = summary(regfit.full)
+
+min_cp = which.min(reg.summary$cp)
+
+par(mfrow = c(1,2))
+plot(reg.summary$cp, xlab = "Number of Predictors", ylab = "Cp", type = "l")
+points(min_cp, reg.summary$cp[min_cp],col = "red", cex = 2, pch = 20)
+
+# Variable selection with Cp
+plot(regfit.full, scale = "Cp")
+```
+
+The above plot showed the values of $C_p$ with respect to different number of predictors in the candidate models. The smallest $C_p$ is reached for a model with 8 predictors. As shown on the right, although the model with 8 predictors has the smallest $C_p$ (`r min_cp`), its $C_p$ value is only improved by less than 0.1 compared to the second best model with 7 predictors. We chose the model with 7 predictors as our final proposed model because we want to keep the model as succinct as possible while maintaining its predictive accuracy. Having more predictors in the model means more measurements, which could be a potential burden for medical personnel. The predictors selected by the Mallow's $C_p$ method includes age, weight, the circumference of neck, abdomen, thigh, forearm, and wrist. 
+
+Hence, we decided to keep the results from AIC, E-net, and Mallow's $C_p$, and discovered the interaction within those baseline models separately. Hence, there were two baseline models, one is the multiple linear regression which eliminated `weight` and `knee` as predictors, the other is the MLR including age, weight, the circumference of neck, abdomen, thigh, forearm, and wrist as predictors. The further probe of interaction would be based on these two baseline models.
+
+## Collinearity 
+```{r echo=FALSE}
+Enet_mod<-lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist,data=body_density_data)
+Cp_mod<-lm(bodyfat_brozek ~ age+weight+thigh+forearm+wrist+neck+abdomen,data = body_density_data)
+
+
+Enet<-performance::check_collinearity(Enet_mod) %>% plot()
+Cp<-performance::check_collinearity(Cp_mod) %>% plot()
+Enet+Cp
+```
+
+We studied the potential collinearity of our two baseline models. Multicollinearity should not be confused with a raw strong correlation between predictors. What matters is the association between one or more predictor variables, conditional on the other variables in the model. The variance inflation factor is a measure to analyze the magnitude of multicollinearity of model terms. A VIF less than 5 indicates a low correlation of that predictor with other predictors. A value between 5 and 10 indicates a moderate correlation, while VIF values larger than 10 are a sign for high, not tolerable correlation of model predictors Based on the plot above, it seems the baseline MLR2 has lower collinearity among the selected predictors.
+
+### The interaction term of baseline MLR1
+Combing the results from E-net, LASSO, and AIC, we decided to remove `chest` and `knee` from the model, and discover the interaction term based on the remaining predictors. 
+```{r results='hide'}
+inter_mod<-lm(bodyfat_brozek~(age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist)^2,data=body_density_data)
+summary.aov(inter_mod)
+```
+Based on the above anova results, the interaction term `weight:height`, `weight:neck`, `neck:abdomen`, `ankle:wrist`, and `forearm:wrist` need further inspection.
+```{r results='hide'}
+# weight: height
+fit_inter1=
+  body_density_data %>% 
+  lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*height,data=.)
+
+summary(fit_inter1)
+
+# weight:neck
+fit_inter2=
+  body_density_data %>% 
+  lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*neck,data=.)
+
+summary(fit_inter2)
+
+# neck:abdomen
+fit_inter3=
+  body_density_data %>% 
+  lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+abdomen*neck,data=.)
+
+summary(fit_inter3)
+
+# ankle:wrist
+fit_inter4=
+  body_density_data %>% 
+  lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+ankle*wrist,data=.)
+
+summary(fit_inter4)
+
+# forearm:wrist
+fit_inter5=
+  body_density_data %>% 
+  lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+forearm*wrist,data=.)
+
+summary(fit_inter5)
+```
+The above results included each potential interaction term in the baseline MLR1 separately. For interation terms that are significant, we deep further to plot their interactions.
+```{r echo=FALSE}
+height_weight_inter<-interact_plot(fit_inter1,pred = height,modx = weight,plot.points = TRUE)
+weight_neck_inter<-interact_plot(fit_inter2,pred = weight,modx = neck,plot.points = TRUE)
+abdomen_neck_inter<-interact_plot(fit_inter3,pred = abdomen,modx = neck,plot.points = TRUE)
+ankle_wrist_inter<-interact_plot(fit_inter4,pred = ankle,modx = wrist,plot.points = TRUE)
+forearm_wrist_inter<-interact_plot(fit_inter5,pred = forearm,modx = wrist,plot.points = TRUE)
+
+(height_weight_inter+weight_neck_inter)/(abdomen_neck_inter+ankle_wrist_inter)
+```
+
+The above plot shows the relationship between `height` and `bobdyfat_brozek` under 3 conditions: 1 standard deviation above and below the mean and the mean itself of the supposed moderator `weight`. Based on the analyses above, we planned to include the interaction term of `weight:height`, `weight:neck`, `neck:abdomen`, and `ankle:wrist`, and built two interaction included models. 
+
+```{r}
+lasso_inter_mod1<-lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*height
+                    +weight*neck+neck*abdomen+ankle*wrist,data = body_density_data)
+
+lasso_inter_mod2<-lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*height
+                    +weight*neck+ankle*wrist,data = body_density_data)
+```
+
+### The interaction term of baseline MLR2
+Based on the same fashion, we studied the potential interaction among predictors in baseline MLR2.
+```{r results='hide'}
+body_density_data %>% lm(bodyfat_brozek ~(age+weight+neck+abdomen+thigh+forearm+wrist)^2,data =.) 
+```
+
+As shown above, the coefficient of the interaction between neck and abdomen is significant, with a p-value less than 0.05. Although the p-value for the interaction between weight and abdomen is larger than 0.05, it's still much smaller compared to other interaction terms. Hence, we would test the effects of both these interactions term by adding them to the model. 
+
+```{r}
+lm_cp_inter = lm(bodyfat_brozek ~ age + weight+thigh+forearm+wrist+neck+abdomen+neck*abdomen+weight*abdomen, data = body_density_data)
+summary(lm_cp_inter)
+```
+
+The above output summarized the coefficients of the model with the two interaction terms. The coefficients of both the interaction terms are significant (at 0.05 significance level). This is further proved by the relatively strong correlations between these independent variables as shown in the correlation plot. Hence, we should consider including them in the final model structure. 
+
+### Model comparison and validation
+```{r echo=FALSE}
+set.seed(2022)
+cv_df<-crossv_kfold(body_density_data,k=10)
+
+cv_df<-
+  cv_df %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)) %>%
+  mutate(
+    mod_lasso_inter1= map(train,~lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*height+weight*neck+neck*abdomen+ankle*wrist,data = .x)),
+    mod_lasso_inter2= map(train,~lm(bodyfat_brozek~age+weight+height+neck+abdomen+hip+thigh+ankle+bicep+forearm+wrist+weight*height+weight*neck+ankle*wrist,data = .x)),
+    mod_lasso= map(train,~lm(bodyfat_brozek~age+height+neck+weight+hip+thigh+ankle+bicep+forearm+wrist+abdomen,data=.x)),
+    mod_cp_inter = map(train,~lm(bodyfat_brozek ~ age+weight+thigh+forearm+wrist+neck+abdomen+neck*abdomen+weight*abdomen, data = .x)),
+    mod_cp=map(train,~lm(bodyfat_brozek ~ age+weight+thigh+forearm+wrist+neck+abdomen, data = .x))
+    ) %>% 
+  mutate(
+    rmse_lasso_inter1=map2_dbl(mod_lasso_inter1,test,~rmse(model = .x,data = .y)),
+    rmse_lasso_inter2=map2_dbl(mod_lasso_inter2,test,~rmse(model = .x,data = .y)),
+    rmse_lasso=map2_dbl(mod_lasso,test,~rmse(model=.x,data = .y)),
+    rmse_cp_inter=map2_dbl(mod_cp_inter,test,~rmse(model = .x,data = .y)),
+    rmse_cp=map2_dbl(mod_cp,test,~rmse(model = .x,data = .y)))
+
+cv_df %>%
+  select(starts_with("rmse")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_") %>%
+  mutate(model = fct_inorder(model)) %>%
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+Finally, we used a 10-fold cross validation to decide which model has better performance in predicting. Based on the plot above, the baseline MLR2 including two interaction terms has the best performance among all the candidates, which has the lowest RMSE. Hence, we decided to choose this one as our final model, which could be write as **bodyfat_brozek = 0.06*age+0.31*weight+0.21*thigh+0.38*forearm-1.62*wrist-4.31*neck-0.02*abdomen+0.04*neck*abdomen-0.004*weight*abdomen**
+
+### Model diagnosis
+We used several diagnostics for checking the adequacy of our final regression model, including checking model assumption, identifying outliers and influential points, and multicollinearity inspection.
+```{r Assumption check}
+par(mfrow = c(2, 2))
+plot(lm_cp_inter)
+```
+
+The above plots check for the assumptions of a multiple linear regression. The shape of the distribution demonstrated that the regression model could be expressed in a linear fashion. Homoscedasticity is met as the residuals are evenly distributed around 0 with a random pattern. As shown by the normal QQ-plot, the residuals are normally distributed. There is no apparent outliers or influential points as indicated by Cook's distance. We assume the errors are independent as a result of random and independent sampling.   
+
+
+## Conclusion 
+Among all the candidate models we built, we selected the model with the highest predictive accuracy (as measured by 10-fold CV). The RMSE for predicting the Brozek's body fat, using the final model, is root-mean-square error (RMSE). The predictors in the final model include age (years), weight (lbs), the circumferences (cm) of the neck, thigh, forearm, wrist, the interaction between abdomen and neck, and the interaction between weight and abdomen. The proposed model represents a much easier alternative to the direct measurement of body fat composition, with a relatively good predictive ability. Moreover, the number of variables that need to be measured is a manageable amount on an individual basis.
+
+It is inevitable that there are some limitations and cautions to using this model. Since we built our models using Brozek's body fat as the response variable, the model may not be applicable to making predictions for other body fat measures (such as the one that uses Siri's equation). In addition, a standardized measurement protocol for each of these predictors is necessary. Otherwise, large measurement biases would be a likely outcome when the measurements are carried out by different researchers or different equipment. 
+
